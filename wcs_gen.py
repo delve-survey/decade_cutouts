@@ -11,6 +11,7 @@ import pandas as pd
 import easyaccess as ea
 import astropy.io.fits as pyfits
 from astropy.wcs import WCS
+from astropy.coordinates import SkyCoord
 import shutil
 import os
 from PIL import Image
@@ -29,6 +30,11 @@ SELECT C.CRPIX1, CRPIX2, C.CRVAL1, C.CRVAL2, C.CD1_1,
        C.UDECMAX, C.UDECMIN, C.URAMAX, C.URAMIN
 FROM COADDTILE_GEOM C WHERE C.TILENAME = '{tilename}'
 '''
+
+QUERY = '''
+SELECT *
+from COADDTILE_GEOM C WHERE C.TILENAME = '{tilename}'
+'''
 TIFF_QUERY = '''
 select
     fai.path,
@@ -42,7 +48,7 @@ where
     t.tag = 'DR3_1_1' and
     t.pfw_attempt_id = c.pfw_attempt_id and
     fai.filename = c.filename and
-    c.tilename = 'DES1110+0001' and
+    c.tilename = '{tilename}' and
     c.band = 'g'
 '''
 
@@ -51,9 +57,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('-t','--tile',
                         help='DECADE tilename')
-    parser.add_argument('-r', '--ra', help='Right Ascension (Decimal Degrees)')
-    parser.add_argument('-d', '--dec', help='Declination (Decimal Degrees)')
+    parser.add_argument('-r', '--ra',type=float, help='Right Ascension (Decimal Degrees)')
+    parser.add_argument('-d', '--dec',type=float, help='Declination (Decimal Degrees)')
     parser.add_argument('-o', '--objid',type=int,help='COADD_OBJECT_ID')
+    parser.add_argument('-p','--pix',default=100,type=int,
+                        help='Pixel offset (e.g. -p 20 yields pixelized RA,Dec +/- 20)')
     parser.add_argument('-v','--verbose',action='store_true',
                         help='output verbosity')
     args = parser.parse_args()
@@ -79,16 +87,13 @@ if __name__ == '__main__':
         logging.debug(f'{i} = {df[i][0]}')
     
     # make a header to feed to wcs
-    logging.debug('Generating generic header for WCS...')
-    hdu = pyfits.PrimaryHDU()
-    hdr = hdu.header
+    logging.debug('Generating WCS from dictionary...')
+    dicts = df.to_dict()
+    l = list(dicts.keys())
+    for i in l:
+        dicts[i] = dicts[i][0]
     
-    logging.debug('Adding DECADE info to header...')
-    
-    for i in cols:
-        hdr[i] = df[i][0]
-        logging.debug(f'Adding {i} info...')
-    wcs = WCS(hdr)
+    wcs = WCS(dicts)
     logging.debug('WCS generated...')
     
     # read in RAs and Decs
@@ -97,21 +102,13 @@ if __name__ == '__main__':
     dec = args.dec
     
     logging.debug('Converting RA and Dec to pixel coords...')
-    pix_x, pix_y = wcs.world_to_pixel(ra,dec)
-    inc_x, inc_y = wcs.world_to_pixel(ra+0.00694444,dec+0.00694444)
-    del_x = (inc_x - pix_x) * 2
-    del_y = (inc_y - pix_y) * 2
-    
-    min_x = round(pix_x - del_x)
-    max_x = round(pix_x + del_x)
-    
-    min_y = round(pix_y - del_y)
-    max_y = round(pix_y + del_y)
+    sky = SkyCoord(ra,dec,unit='deg')
+    pix_x, pix_y = wcs.world_to_pixel(sky)
     
     logging.debug('Generating cursor for TIFF_QUERY...')
     cursor=conn.cursor()
     logging.debug('Executing Query...')
-    QQ=cursor.execute(TIFF_QUERY)
+    QQ=cursor.execute(TIFF_QUERY.format(tilename=tile))
     logging.debug('Fetching data...')
     paths = QQ.fetchall()
     raw_path = paths[0][0]
@@ -127,15 +124,19 @@ if __name__ == '__main__':
     logging.debug('Reading TIFF image file...')
     im = Image.open('tiff/{}_{}{}_irg.tiff'.format(tilename,sys_run,run))
     
-    arr = np.asarray(im)
-    cutout_arr = arr[min_x:max_x, 
-                     min_y:max_y,
-                     :]
+    x = pix_x
+    y = im.size[1]-pix_y
+    cutout = im.crop((x-args.pix,y-args.pix,x+args.pix,y+args.pix))
     logging.debug('Cutout generated. Saving...')
+   
     
-    new_im = Image.fromarray(cutout_arr)
-    new_im.save(f'cutouts/{args.objid}.png')
-    logging.debug(f'{args.objid} processed.')
+    if args.objid:
+        cutout.save(f'cutouts/{args.objid}.png')
+    else:
+        cutout.save(f'cutouts/{args.ra}_{args.dec}.png')
+    logging.info(f'{args.objid} processed.')
+    #os.system('rm tiff/{}_{}{}_irg.tiff'.format(tilename,sys_run,run))
+    logging.info('TIFF file deleted.')
     
     
     
