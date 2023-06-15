@@ -59,9 +59,10 @@ if __name__ == '__main__':
                         help='DECADE tilename')
     parser.add_argument('-r', '--ra',type=float, help='Right Ascension (Decimal Degrees)')
     parser.add_argument('-d', '--dec',type=float, help='Declination (Decimal Degrees)')
-    parser.add_argument('-o', '--objid',type=int,help='COADD_OBJECT_ID')
+    parser.add_argument('-o', '--objid',type=int,
+                        help='COADD_OBJECT_ID for cutout name. (Default format: RA_DEC.png)')
     parser.add_argument('-p','--pix',default=100,type=int,
-                        help='Pixel offset (e.g. -p 20 yields pixelized RA,Dec +/- 20)')
+                        help='Pixel offset (Default value: 100)')
     parser.add_argument('-v','--verbose',action='store_true',
                         help='output verbosity')
     args = parser.parse_args()
