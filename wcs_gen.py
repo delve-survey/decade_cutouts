@@ -16,6 +16,7 @@ import shutil
 import os
 from PIL import Image
 import logging
+import matplotlib.pyplot as plt
 
 
 
@@ -56,9 +57,9 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('-t','--tile',
-                        help='DECADE tilename')
-    parser.add_argument('-r', '--ra',type=float, help='Right Ascension (Decimal Degrees)')
-    parser.add_argument('-d', '--dec',type=float, help='Declination (Decimal Degrees)')
+                        help='DECADE tilename',required=True)
+    parser.add_argument('-r', '--ra',type=float, help='Right Ascension (Decimal Degrees)',required=True)
+    parser.add_argument('-d', '--dec',type=float, help='Declination (Decimal Degrees)',required=True)
     parser.add_argument('-o', '--objid',type=int,
                         help='COADD_OBJECT_ID for cutout name. (Default format: RA_DEC.png)')
     parser.add_argument('-p','--pix',default=100,type=int,
@@ -82,16 +83,15 @@ if __name__ == '__main__':
     logging.debug(query)
     logging.debug('Querying DECADE...')
     df = conn.query_to_pandas(query)
-    logging.debug('Displaying dataframe..')
+
     cols = df.columns
-    for i in cols:
-        logging.debug(f'{i} = {df[i][0]}')
     
     # make a header to feed to wcs
     logging.debug('Generating WCS from dictionary...')
     dicts = df.to_dict()
-    l = list(dicts.keys())
+    l = list(df)
     for i in l:
+        print(dicts[i])
         dicts[i] = dicts[i][0]
     
     wcs = WCS(dicts)
@@ -101,7 +101,7 @@ if __name__ == '__main__':
     logging.debug('Reading RAs and Decs...')
     ra = args.ra
     dec = args.dec
-    
+
     logging.debug('Converting RA and Dec to pixel coords...')
     sky = SkyCoord(ra,dec,unit='deg')
     pix_x, pix_y = wcs.world_to_pixel(sky)
@@ -120,23 +120,31 @@ if __name__ == '__main__':
     logging.debug(f'RAW_PATH: {raw_path}')
     path=raw_path[:-5] + 'qa/{}_{}{}_irg.tiff'.format( tilename,sys_run,run)
     logging.debug(f'PATH_TO_TIFF: {path}')
-    logging.debug('Downloading TIFF Image...')
-    os.system('wget --user=decade --password=decaFil3s https://decade.ncsa.illinois.edu/deca_archive/%s  -P tiff' % path)
-    logging.debug('Reading TIFF image file...')
+    if not os.path.exists('tiff/'+'{}_{}{}_irg.tiff'.format( tilename,sys_run,run) ):
+        logging.debug('Downloading TIFF Image...')
+        os.system('wget --user=decade --password=decaFil3s https://decade.ncsa.illinois.edu/deca_archive/%s  -P tiff' % path)
+        logging.debug('Reading TIFF image file...')
     im = Image.open('tiff/{}_{}{}_irg.tiff'.format(tilename,sys_run,run))
     
-    x = pix_x
-    y = im.size[1]-pix_y
-    cutout = im.crop((x-args.pix,y-args.pix,x+args.pix,y+args.pix))
+    xs = pix_x
+    ys = im.size[1]-pix_y
+
+    cutout = im.crop((xs-args.pix,
+                      ys-args.pix,
+                      xs+args.pix,
+                      ys+args.pix))
+
+    fig=plt.figure(figsize=(10,10))
+    arr=np.asarray(cutout)
+    plt.imshow(arr)
     logging.debug('Cutout generated. Saving...')
    
-    
     if args.objid:
-        cutout.save(f'cutouts/{args.objid}.png')
+        plt.savefig(f'cutouts/{args.objid}.png')
     else:
-        cutout.save(f'cutouts/{args.ra}_{args.dec}.png')
+        plt.savefig(f'cutouts/{args.ra}_{args.dec}.png')
     logging.info(f'{args.objid} processed.')
-    #os.system('rm tiff/{}_{}{}_irg.tiff'.format(tilename,sys_run,run))
+    os.system('rm tiff/{}_{}{}_irg.tiff'.format(tilename,sys_run,run))
     logging.info('TIFF file deleted.')
     
     
